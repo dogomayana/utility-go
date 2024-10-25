@@ -1,4 +1,4 @@
-module example.com/server
+module example.com/main
 
 go 1.22.2
 
