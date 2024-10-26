@@ -63,7 +63,7 @@ func CreateSchedule(c *gin.Context) {
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Internal Server Error",
+			"error": err.Error(),
 		})
 		return
 	} else {
