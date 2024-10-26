@@ -6,7 +6,6 @@ import (
 
 	"example.com/abobtech/controller"
 	"github.com/gin-gonic/gin"
-	// "github.com/joho/godotenv"
 )
 
 func main() {
@@ -14,6 +13,7 @@ func main() {
 	route := gin.Default()
 	route.POST("/createSchedule", controller.CreateSchedule)
 	route.GET("/getAllSchedules", controller.GetAllSchedules)
+	route.GET("/getSchedule", controller.GetSchedule)
 	route.DELETE("/deleteSchedule", controller.DeleteSchedule)
 	route.PATCH("/updateSchedule", controller.UpdateSchedule)
 	port := os.Getenv("PORT")
@@ -24,5 +24,4 @@ func main() {
 		log.Panicf("error: %s", err)
 	}
 
-	// route.Run("localhost:8080")
 }

@@ -51,7 +51,7 @@ func CreateSchedule(c *gin.Context) {
 
 	var json Schedule
 	if err := c.ShouldBindJSON(&json); err != nil {
-		c.JSON(http.StatusNotAcceptable, gin.H{"error": "type error"})
+		c.JSON(http.StatusNotAcceptable, gin.H{"error": "type error or empty value"})
 		return
 	}
 	row := Schedule{
@@ -79,7 +79,7 @@ func GetAllSchedules(c *gin.Context) {
 	if err != nil {
 
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Internal Server Error",
+			"error": err.Error(),
 		})
 		return
 	}
@@ -96,7 +96,31 @@ func GetAllSchedules(c *gin.Context) {
 		})
 	}
 }
+func GetSchedule(c *gin.Context) {
+	supaClient := ConnectDB()
+	idQuery := c.Query("q")
 
+	data, _, err := supaClient.From("scheduler").Select("*", "exact", false).Eq("id", idQuery).Single().Execute()
+	if err != nil {
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	var schedules GetSchedules
+	err = json.Unmarshal(data, &schedules)
+	if err != nil {
+		c.JSON(http.StatusNoContent, gin.H{
+			"error": "server error",
+		})
+		return
+	} else {
+		c.JSON(http.StatusOK, gin.H{
+			"data": schedules,
+		})
+	}
+}
 func DeleteSchedule(c *gin.Context) {
 
 	supaClient := ConnectDB()
@@ -121,7 +145,8 @@ func UpdateSchedule(c *gin.Context) {
 	supaClient := ConnectDB()
 	var json Schedule
 	if err := c.ShouldBindJSON(&json); err != nil {
-		c.JSON(http.StatusNotAcceptable, gin.H{"error": "type error"})
+		c.JSON(http.StatusNotAcceptable, gin.H{"error": "type error or empty value"})
+
 		return
 	}
 	row := Schedule{
