@@ -1,55 +1,55 @@
-package database
+package utils
 
-// 	// "database/sql"
-// "fmt"
+import (
+	"fmt"
+	"os"
 
-// 	// "os"
-// 	// "strconv"
+	"gorm.io/driver/sqlite" // Sqlite driver based on CGO
+	// "modernc.org/sqlite"
 
-// 	// "github.com/joho/godotenv"
-// 	// _ "github.com/lib/pq" // don't forget to add it. It doesn't be added automatically
-// 	"github.com/supabase-community/supabase-go"
+	// "github.com/glebarez/sqlite" // Pure go SQLite driver, checkout https://github.com/glebarez/sqlite for details
+	"github.com/joho/godotenv"
+	"github.com/supabase-community/postgrest-go"
+	"github.com/supabase-community/supabase-go"
+	"gorm.io/gorm"
+)
 
-func connectDB() {
-	// client, err := supabase.NewClient("https://ciscchstkoanleiqhyiu.supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpc2NjaHN0a29hbmxlaXFoeWl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE2ODA3MzU1NzgsImV4cCI6MTk5NjMxMTU3OH0.Za39xLn4BQv7U_2Of_IUYmuv_x8rLke19GDc52TkDv4", nil)
-
-	// if err != nil {
-	// 	fmt.Println("cannot initalize client", err)
-	// 	c.JSON(http.StatusInternalServerError, gin.H{
-	// 		"message": "cannot initalize client",
-	// 	})
-	// 	return
-	// }
-	// return client
+type CreateSchedule struct {
+	Description string `json:"description" binding:"required"`
+	Daymonth    string `json:"day_month" binding:"required"`
+	Priority    string `json:"prioity" binding:"required"`
+}
+type Pin struct {
+	TxnPin int16 `json:"txn_pin" binding:"required"`
 }
 
-// // var Version = "1.0"
+func DBClient() *postgrest.QueryBuilder {
+	_ = godotenv.Load()
 
-// // var Db *sql.DB
+	url := os.Getenv("DB_URL")
+	key := os.Getenv("DB_ANON_KEY")
+	table := os.Getenv("DB_TABLE")
+	client, err := supabase.NewClient(url, key, nil)
 
-// // func ConnectDatabase() {
+	if err != nil {
+		fmt.Println("cannot initalize client", err)
+		return nil
+	}
+	return client.From(table)
+}
 
-// 	// err := godotenv.Load() //by default, it is .env so we don't have to write
-// 	// if err != nil {
-// 	// 	fmt.Println("Error is occurred  on .env file please check")
-// 	// }
-// 	//we read our .env file
-// 	// host := os.Getenv("HOST")
-// 	// port, _ := strconv.Atoi(os.Getenv("PORT")) // don't forget to convert int since port is int type.
-// 	// user := os.Getenv("USER")
-// 	// dbname := os.Getenv("DB_NAME")
-// 	// pass := os.Getenv("PASSWORD")
+func InMemory() int16 {
+	db, err := gorm.Open(sqlite.Open(os.Getenv("MEMORY")), &gorm.Config{})
+	if err != nil {
+		return 0
+	}
+	db.AutoMigrate(&Pin{})
 
-// 	// // set up postgres sql to open it.
-// 	// psqlSetup := fmt.Sprintf("host=%s port=%d user=%s dbname=%s password=%s sslmode=disable",
-// 	// 	host, port, user, dbname, pass)
-// 	// db, errSql := sql.Open("postgres", psqlSetup)
-// 	// if errSql != nil {
-// 	// 	fmt.Println("There is an error while connecting to the database ", err)
-// 	// 	panic(err)
-// 	// } else {
-// 	// 	Db = db
-// 	// 	fmt.Println("Successfully connected to database!")
-// 	// }
-// // }
-//
+	insertPin := &Pin{TxnPin: 1234}
+
+	db.Create(insertPin)
+	return insertPin.TxnPin
+
+	// fmt.Printf("insert ID: %d, Code: %s, Price: %d\n",
+	//   insertProduct.ID, insertProduct.Code, insertProduct.Price)
+}

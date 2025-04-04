@@ -3,104 +3,231 @@ package controller
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
+	s "strings"
+	"sync"
+	"time"
 
 	// "strconv"
+	// "os"
 
-	"os"
+	"example.com/abobtech/utils"
 
-	"github.com/joho/godotenv"
-	"github.com/supabase-community/supabase-go"
+	// "github.com/joho/godotenv"
+	// "github.com/supabase-community/supabase-go"
 
 	"github.com/gin-gonic/gin"
 )
 
+type Item struct {
+	Sku      string
+	ItemName string  `json:"itemName" binding:"required"`
+	Unit     int8    `json:"unit" binding:"required"`
+	Price    float32 `json:"price" binding:"required"`
+	Quantity int8    `json:"quantity" binding:"required"`
+}
+type client struct {
+	count       int
+	windowStart time.Time
+}
 type Schedule struct {
 	Description string `json:"description" binding:"required"`
 	Daymonth    string `json:"day_month" binding:"required"`
 	Priority    string `json:"priority" binding:"required"`
 }
-type GetSchedules struct {
+type GetUser struct {
 	ID          int8   `json:"id"`
-	Description string `json:"description"  `
-	Daymonth    string `json:"day_month" `
-	Priority    string `json:"priority"  `
+	Email       string `json:"email"`
+	Firstname   string `json:"firstname"`
+	Lastname    string `json:"lastname"`
+	Balance     byte   `json:"balance"`
+	Device_Type string `json:"device_type"`
 }
 
-func ConnectDB() (client *supabase.Client) {
-	err := godotenv.Load()
-	if err != nil {
-		fmt.Println("Error loading .env file")
+// FixedWindowRateLimiter returns a Gin middleware that limits requests per client using Fixed Window strategy
+func FixedWindowRateLimiter(limit int, window time.Duration) gin.HandlerFunc {
+	// Use a thread-safe map to store client data
+	clients := make(map[string]*client)
+	var mutex sync.Mutex
+
+	// Start a goroutine to clean up old entries
+	go func() {
+		for {
+			time.Sleep(window)
+			mutex.Lock()
+			for key, c := range clients {
+				if time.Since(c.windowStart) > window {
+					delete(clients, key)
+				}
+			}
+			mutex.Unlock()
+		}
+	}()
+
+	return func(c *gin.Context) {
+		clientIP := c.ClientIP()
+
+		mutex.Lock()
+		cData, exists := clients[clientIP]
+		if !exists {
+			// First request from this client
+			clients[clientIP] = &client{
+				count:       1,
+				windowStart: time.Now(),
+			}
+			mutex.Unlock()
+			c.Next()
+			return
+		}
+
+		// Check if the window has passed
+		if time.Since(cData.windowStart) > window {
+			// Reset the count and window start time
+			cData.count = 1
+			cData.windowStart = time.Now()
+			mutex.Unlock()
+			c.Next()
+			return
+		}
+
+		// Increment the count and check the limit
+		if cData.count >= limit {
+			// Rate limit exceeded
+			mutex.Unlock()
+			c.AbortWithStatusJSON(429, gin.H{
+				"error": "Too Many Requests",
+			})
+			return
+		}
+
+		cData.count++
+		mutex.Unlock()
+		c.Next()
 	}
-
-	supabaseURL := os.Getenv("SUPABASE_URL")
-	supabaseAnonKey := os.Getenv("SUPABASE_ANON_KEY")
-
-	client, err = supabase.NewClient(supabaseURL, supabaseAnonKey, nil)
-
-	if err != nil {
-		fmt.Println("cannot initalize client", err)
-		return
-	}
-	return client
 }
 
-func CreateSchedule(c *gin.Context) {
+// func ConnectDB() (client *supabase.Client) {
+// 	err := godotenv.Load()
+// 	if err != nil {
+// 		fmt.Println("Error loading .env file")
+// 	}
 
-	supaClient := ConnectDB()
+// 	supabaseURL := os.Getenv("SUPABASE_URL")
+// 	supabaseAnonKey := os.Getenv("SUPABASE_ANON_KEY")
 
-	var json Schedule
+// 	client, err = supabase.NewClient(supabaseURL, supabaseAnonKey, nil)
+
+// 	if err != nil {
+// 		fmt.Println("cannot initalize client", err)
+// 		return
+// 	}
+// 	return client
+// }
+
+func CreateItem(c *gin.Context) {
+	// supaClient := ConnectDB()
+	var json Item
 	if err := c.ShouldBindJSON(&json); err != nil {
 		c.JSON(http.StatusNotAcceptable, gin.H{"error": "type error or empty value"})
 		return
 	}
-	row := Schedule{
-		Description: json.Description,
-		Daymonth:    json.Daymonth,
-		Priority:    json.Priority,
-	}
-	_, _, err := supaClient.From("scheduler").Insert(row, false, "", "", "").Execute()
+	randN := rand.Intn(10000)
+	str := s.Split(json.ItemName, " ")
+	sku := fmt.Sprint(randN, str[0])
 
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
-		return
-	} else {
-		c.JSON(http.StatusCreated, gin.H{
-			"success": "created",
-		})
+	fmt.Println(sku)
+	row := Item{
+		Sku:      sku,
+		ItemName: json.ItemName,
+		Unit:     json.Unit,
+		Price:    json.Price,
+		Quantity: json.Quantity,
 	}
+	c.JSON(http.StatusCreated, gin.H{
+		"success": row,
+	})
+	// _, _, err := supaClient.From("consumables").Insert(row, false, "", "", "").Execute()
 
+	// if err != nil {
+	// 	c.JSON(http.StatusInternalServerError, gin.H{
+	// 		"error": err.Error(),
+	// 	})
+	// 	return
+	// } else {
+	// 	c.JSON(http.StatusCreated, gin.H{
+	// 		"success": "created",
+	// 	})
+	// }
 }
+
+// func CreateSchedule(c *gin.Context) {
+
+// 	supaClient := ConnectDB()
+
+// 	var json Schedule
+// 	if err := c.ShouldBindJSON(&json); err != nil {
+// 		c.JSON(http.StatusNotAcceptable, gin.H{"error": "type error or empty value"})
+// 		return
+// 	}
+// 	row := Schedule{
+// 		Description: json.Description,
+// 		Daymonth:    json.Daymonth,
+// 		Priority:    json.Priority,
+// 	}
+// 	_, _, err := supaClient.From("scheduler").Insert(row, false, "", "", "").Execute()
+
+// 	if err != nil {
+// 		c.JSON(http.StatusInternalServerError, gin.H{
+// 			"error": err.Error(),
+// 		})
+// 		return
+// 	} else {
+// 		c.JSON(http.StatusCreated, gin.H{
+// 			"success": "created",
+// 		})
+// 	}
+
+// }
 func GetAllSchedules(c *gin.Context) {
-	supaClient := ConnectDB()
-	data, _, err := supaClient.From("scheduler").Select("*", "exact", false).Execute()
-	if err != nil {
+	fmt.Printf("%v", utils.InMemory())
+	supaClient := utils.DBClient()
+	idQuery := c.Query("q")
+	var data []byte
+	var err error
 
+	if idQuery == "" {
+		data, _, err = supaClient.Select("*", "exact", false).Execute()
+	} else {
+		data, _, err = supaClient.Select("*", "exact", false).Eq("id", idQuery).Execute()
+	}
+
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
+			"error": "Can't connect to DB",
 		})
 		return
 	}
-	var schedules []GetSchedules
-	err = json.Unmarshal(data, &schedules)
+
+	var users []GetUser
+	err = json.Unmarshal(data, &users)
 	if err != nil {
 		c.JSON(http.StatusNoContent, gin.H{
-			"error": "server error",
+			"error": "No Data Found",
 		})
 		return
 	} else {
 		c.JSON(http.StatusOK, gin.H{
-			"data": schedules,
+			"data": users,
 		})
 	}
 }
+
 func GetSchedule(c *gin.Context) {
-	supaClient := ConnectDB()
+	supaClient := utils.DBClient()
 	idQuery := c.Query("q")
 
-	data, _, err := supaClient.From("scheduler").Select("*", "exact", false).Eq("id", idQuery).Single().Execute()
+	data, _, err := supaClient.Select("*", "exact", false).Eq("id", idQuery).Single().Execute()
 	if err != nil {
 
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -108,7 +235,7 @@ func GetSchedule(c *gin.Context) {
 		})
 		return
 	}
-	var schedules GetSchedules
+	var schedules GetUser
 	err = json.Unmarshal(data, &schedules)
 	if err != nil {
 		c.JSON(http.StatusNoContent, gin.H{
@@ -121,53 +248,54 @@ func GetSchedule(c *gin.Context) {
 		})
 	}
 }
-func DeleteSchedule(c *gin.Context) {
 
-	supaClient := ConnectDB()
+// func DeleteSchedule(c *gin.Context) {
 
-	idQuery := c.Query("q")
+// 	supaClient := ConnectDB()
 
-	_, _, err := supaClient.From("scheduler").Delete("*", "").Eq("id", idQuery).Execute()
-	if err != nil {
+// 	idQuery := c.Query("q")
 
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
-		return
-	} else {
-		c.JSON(http.StatusOK, gin.H{
-			"msg": "deleted",
-		})
-	}
-}
+// 	_, _, err := supaClient.From("scheduler").Delete("*", "").Eq("id", idQuery).Execute()
+// 	if err != nil {
 
-func UpdateSchedule(c *gin.Context) {
-	supaClient := ConnectDB()
-	var json Schedule
-	if err := c.ShouldBindJSON(&json); err != nil {
-		c.JSON(http.StatusNotAcceptable, gin.H{"error": "type error or empty value"})
+// 		c.JSON(http.StatusInternalServerError, gin.H{
+// 			"error": err.Error(),
+// 		})
+// 		return
+// 	} else {
+// 		c.JSON(http.StatusOK, gin.H{
+// 			"msg": "deleted",
+// 		})
+// 	}
+// }
 
-		return
-	}
-	row := Schedule{
-		Description: json.Description,
-		Daymonth:    json.Daymonth,
-		Priority:    json.Priority,
-	}
+// func UpdateSchedule(c *gin.Context) {
+// 	supaClient := ConnectDB()
+// 	var json Schedule
+// 	if err := c.ShouldBindJSON(&json); err != nil {
+// 		c.JSON(http.StatusNotAcceptable, gin.H{"error": "type error or empty value"})
 
-	idQuery := c.Query("q")
+// 		return
+// 	}
+// 	row := Schedule{
+// 		Description: json.Description,
+// 		Daymonth:    json.Daymonth,
+// 		Priority:    json.Priority,
+// 	}
 
-	_, _, err := supaClient.From("scheduler").Update(row, "*", "").Eq("id", idQuery).Execute()
+// 	idQuery := c.Query("q")
 
-	if err != nil {
+// 	_, _, err := supaClient.From("scheduler").Update(row, "*", "").Eq("id", idQuery).Execute()
 
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
-		return
-	} else {
-		c.JSON(http.StatusOK, gin.H{
-			"msg": "Updated",
-		})
-	}
-}
+// 	if err != nil {
+
+// 		c.JSON(http.StatusInternalServerError, gin.H{
+// 			"error": err.Error(),
+// 		})
+// 		return
+// 	} else {
+// 		c.JSON(http.StatusOK, gin.H{
+// 			"msg": "Updated",
+// 		})
+// 	}
+// }
