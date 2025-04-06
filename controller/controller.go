@@ -2,10 +2,7 @@ package controller
 
 import (
 	"encoding/json"
-	"fmt"
-	"math/rand"
 	"net/http"
-	s "strings"
 	"sync"
 	"time"
 
@@ -13,29 +10,21 @@ import (
 	// "os"
 
 	"example.com/abobtech/utils"
+	"golang.org/x/crypto/bcrypt"
 
 	// "github.com/joho/godotenv"
 	// "github.com/supabase-community/supabase-go"
-
 	"github.com/gin-gonic/gin"
+	// "github.com/golang-jwt/jwt/v5"
+	"github.com/joho/godotenv"
+	"github.com/mssola/user_agent"
 )
 
-type Item struct {
-	Sku      string
-	ItemName string  `json:"itemName" binding:"required"`
-	Unit     int8    `json:"unit" binding:"required"`
-	Price    float32 `json:"price" binding:"required"`
-	Quantity int8    `json:"quantity" binding:"required"`
-}
 type client struct {
 	count       int
 	windowStart time.Time
 }
-type Schedule struct {
-	Description string `json:"description" binding:"required"`
-	Daymonth    string `json:"day_month" binding:"required"`
-	Priority    string `json:"priority" binding:"required"`
-}
+
 type GetUser struct {
 	ID          int8   `json:"id"`
 	Email       string `json:"email"`
@@ -43,6 +32,116 @@ type GetUser struct {
 	Lastname    string `json:"lastname"`
 	Balance     byte   `json:"balance"`
 	Device_Type string `json:"device_type"`
+}
+type SignUpT struct {
+	FirstName    string `json:"firstname" binding:"required"`
+	LastName     string `json:"lastname" binding:"required"`
+	Email        string `json:"email" binding:"required"`
+	Password     string `json:"password" binding:"required"`
+	Device_Type  string `json:"device_type"`
+	Balance      byte   `json:"balance"`
+	Auth_Session string `json:"auth_session"`
+}
+type LogInT struct {
+	Email        string `json:"email" binding:"required"`
+	Password     string `json:"password" binding:"required"`
+	Auth_Session string `json:"auth_session"`
+}
+type UpdateAuth struct {
+	Auth_Session string `json:"auth_session"`
+}
+
+func SignUp(c *gin.Context) {
+	userAgent := c.Request.Header.Get("User-Agent")
+	ua := user_agent.New(userAgent)
+	device_type := ua.Model()
+
+	supaClient := utils.DBClient()
+
+	var json SignUpT
+
+	if err := c.ShouldBindJSON(&json); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "type error"})
+	}
+
+	byte, err := bcrypt.GenerateFromPassword([]byte(json.Password), 14)
+	if err != nil {
+	}
+	token, _ := utils.JwtTokens(json.Email)
+	row := SignUpT{
+		FirstName:    json.FirstName,
+		LastName:     json.LastName,
+		Email:        json.Email,
+		Password:     string(byte),
+		Device_Type:  device_type,
+		Balance:      0.0,
+		Auth_Session: token,
+	}
+	_, _, err = supaClient.Insert(row, false, "", "", "").Execute()
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "user already exists",
+		})
+		return
+	} else {
+		c.JSON(http.StatusCreated, gin.H{
+			"success": "created",
+		})
+	}
+
+}
+func LogIn(c *gin.Context) {
+	_ = godotenv.Load()
+	supaClient := utils.DBClient()
+
+	var jsonBody LogInT
+	if err := c.ShouldBindJSON(&jsonBody); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "type error"})
+	}
+
+	data, _, err := supaClient.Select("*", "exact", false).Eq("email", jsonBody.Email).Single().Execute()
+	if err != nil {
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "can't connect to DB",
+		})
+	}
+	var users LogInT
+	err = json.Unmarshal(data, &users)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "can't find user",
+		})
+	}
+	var pwd = users.Password
+	err = bcrypt.CompareHashAndPassword([]byte(pwd), []byte(jsonBody.Password))
+
+	if err != nil {
+		c.AbortWithStatusJSON(400, gin.H{"error": "Wrong email or password"})
+	}
+
+	parseValue := utils.ParseJwtToken(users.Auth_Session, users.Email)
+	updateAuthSession := UpdateAuth{
+		Auth_Session: parseValue,
+	}
+	if len(parseValue) < 50 {
+		c.AbortWithStatusJSON(201, gin.H{
+			"status": parseValue,
+		})
+	} else {
+		_, _, err := supaClient.Update(updateAuthSession, "*", "").Eq("email", jsonBody.Email).Execute()
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "error updating auth session",
+			})
+		} else {
+			c.AbortWithStatusJSON(201, gin.H{
+				"status": true,
+			})
+		}
+	}
 }
 
 // FixedWindowRateLimiter returns a Gin middleware that limits requests per client using Fixed Window strategy
@@ -107,90 +206,8 @@ func FixedWindowRateLimiter(limit int, window time.Duration) gin.HandlerFunc {
 	}
 }
 
-// func ConnectDB() (client *supabase.Client) {
-// 	err := godotenv.Load()
-// 	if err != nil {
-// 		fmt.Println("Error loading .env file")
-// 	}
-
-// 	supabaseURL := os.Getenv("SUPABASE_URL")
-// 	supabaseAnonKey := os.Getenv("SUPABASE_ANON_KEY")
-
-// 	client, err = supabase.NewClient(supabaseURL, supabaseAnonKey, nil)
-
-// 	if err != nil {
-// 		fmt.Println("cannot initalize client", err)
-// 		return
-// 	}
-// 	return client
-// }
-
-func CreateItem(c *gin.Context) {
-	// supaClient := ConnectDB()
-	var json Item
-	if err := c.ShouldBindJSON(&json); err != nil {
-		c.JSON(http.StatusNotAcceptable, gin.H{"error": "type error or empty value"})
-		return
-	}
-	randN := rand.Intn(10000)
-	str := s.Split(json.ItemName, " ")
-	sku := fmt.Sprint(randN, str[0])
-
-	fmt.Println(sku)
-	row := Item{
-		Sku:      sku,
-		ItemName: json.ItemName,
-		Unit:     json.Unit,
-		Price:    json.Price,
-		Quantity: json.Quantity,
-	}
-	c.JSON(http.StatusCreated, gin.H{
-		"success": row,
-	})
-	// _, _, err := supaClient.From("consumables").Insert(row, false, "", "", "").Execute()
-
-	// if err != nil {
-	// 	c.JSON(http.StatusInternalServerError, gin.H{
-	// 		"error": err.Error(),
-	// 	})
-	// 	return
-	// } else {
-	// 	c.JSON(http.StatusCreated, gin.H{
-	// 		"success": "created",
-	// 	})
-	// }
-}
-
-// func CreateSchedule(c *gin.Context) {
-
-// 	supaClient := ConnectDB()
-
-// 	var json Schedule
-// 	if err := c.ShouldBindJSON(&json); err != nil {
-// 		c.JSON(http.StatusNotAcceptable, gin.H{"error": "type error or empty value"})
-// 		return
-// 	}
-// 	row := Schedule{
-// 		Description: json.Description,
-// 		Daymonth:    json.Daymonth,
-// 		Priority:    json.Priority,
-// 	}
-// 	_, _, err := supaClient.From("scheduler").Insert(row, false, "", "", "").Execute()
-
-// 	if err != nil {
-// 		c.JSON(http.StatusInternalServerError, gin.H{
-// 			"error": err.Error(),
-// 		})
-// 		return
-// 	} else {
-// 		c.JSON(http.StatusCreated, gin.H{
-// 			"success": "created",
-// 		})
-// 	}
-
-// }
-func GetAllSchedules(c *gin.Context) {
-	fmt.Printf("%v", utils.InMemory())
+func GetUsers(c *gin.Context) {
+	// utils.JwtTokens() // Removed undefined function call
 	supaClient := utils.DBClient()
 	idQuery := c.Query("q")
 	var data []byte
@@ -222,80 +239,3 @@ func GetAllSchedules(c *gin.Context) {
 		})
 	}
 }
-
-func GetSchedule(c *gin.Context) {
-	supaClient := utils.DBClient()
-	idQuery := c.Query("q")
-
-	data, _, err := supaClient.Select("*", "exact", false).Eq("id", idQuery).Single().Execute()
-	if err != nil {
-
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
-		return
-	}
-	var schedules GetUser
-	err = json.Unmarshal(data, &schedules)
-	if err != nil {
-		c.JSON(http.StatusNoContent, gin.H{
-			"error": "server error",
-		})
-		return
-	} else {
-		c.JSON(http.StatusOK, gin.H{
-			"data": schedules,
-		})
-	}
-}
-
-// func DeleteSchedule(c *gin.Context) {
-
-// 	supaClient := ConnectDB()
-
-// 	idQuery := c.Query("q")
-
-// 	_, _, err := supaClient.From("scheduler").Delete("*", "").Eq("id", idQuery).Execute()
-// 	if err != nil {
-
-// 		c.JSON(http.StatusInternalServerError, gin.H{
-// 			"error": err.Error(),
-// 		})
-// 		return
-// 	} else {
-// 		c.JSON(http.StatusOK, gin.H{
-// 			"msg": "deleted",
-// 		})
-// 	}
-// }
-
-// func UpdateSchedule(c *gin.Context) {
-// 	supaClient := ConnectDB()
-// 	var json Schedule
-// 	if err := c.ShouldBindJSON(&json); err != nil {
-// 		c.JSON(http.StatusNotAcceptable, gin.H{"error": "type error or empty value"})
-
-// 		return
-// 	}
-// 	row := Schedule{
-// 		Description: json.Description,
-// 		Daymonth:    json.Daymonth,
-// 		Priority:    json.Priority,
-// 	}
-
-// 	idQuery := c.Query("q")
-
-// 	_, _, err := supaClient.From("scheduler").Update(row, "*", "").Eq("id", idQuery).Execute()
-
-// 	if err != nil {
-
-// 		c.JSON(http.StatusInternalServerError, gin.H{
-// 			"error": err.Error(),
-// 		})
-// 		return
-// 	} else {
-// 		c.JSON(http.StatusOK, gin.H{
-// 			"msg": "Updated",
-// 		})
-// 	}
-// }
