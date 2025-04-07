@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
+	// "strconv"
+
 	// "reflect"
 	"sync"
 	"time"
@@ -36,13 +38,13 @@ type GetUser struct {
 	Device_Type string `json:"device_type"`
 }
 type SignUpT struct {
-	FirstName    string `json:"firstname" binding:"required"`
-	LastName     string `json:"lastname" binding:"required"`
-	Email        string `json:"email" binding:"required"`
-	Password     string `json:"password" binding:"required"`
-	Device_Type  string `json:"device_type"`
-	Balance      byte   `json:"balance"`
-	Auth_Session string `json:"auth_session"`
+	FirstName    string  `json:"first_name" binding:"required"`
+	LastName     string  `json:"last_name" binding:"required"`
+	Email        string  `json:"email" binding:"required"`
+	Password     string  `json:"password" binding:"required"`
+	Device_Type  string  `json:"device_type"`
+	Balance      float32 `json:"balance"`
+	Auth_Session string  `json:"auth_session"`
 }
 type LogInT struct {
 	Email        string `json:"email" binding:"required"`
@@ -58,7 +60,51 @@ type GetUSerT struct {
 	LastName     string `json:"lastname"`
 	Auth_Session string `json:"auth_session"`
 }
+type AmountT struct {
+	Balance float32 `json:"balance"`
+}
 
+func Deposit(c *gin.Context) {
+	supaClient := utils.DBClient()
+
+	idQuery := c.Query("email")
+	var jsonBody AmountT
+	if err := c.ShouldBindJSON(&jsonBody); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	data, _, err := supaClient.Select("balance", "exact", false).Eq("email", idQuery).Single().Execute()
+	if err != nil {
+
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	var tempv AmountT
+	err = json.Unmarshal(data, &tempv)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	_, _, err = supaClient.Update(map[string]any{"balance": tempv.Balance + jsonBody.Balance}, "*", "").Eq("email", "example@mail").Execute()
+
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	} else {
+		c.JSON(http.StatusCreated, gin.H{
+			"success": "created",
+		})
+		return
+	}
+}
 func SignUp(c *gin.Context) {
 	userAgent := c.Request.Header.Get("User-Agent")
 	ua := user_agent.New(userAgent)
@@ -83,14 +129,14 @@ func SignUp(c *gin.Context) {
 		Email:        json.Email,
 		Password:     string(byte),
 		Device_Type:  device_type,
-		Balance:      0.0,
+		Balance:      100.10,
 		Auth_Session: token,
 	}
 	_, _, err = supaClient.Insert(row, false, "", "", "").Execute()
 
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-			"error": "user already exists",
+			"error": err.Error(),
 		})
 		return
 	} else {
