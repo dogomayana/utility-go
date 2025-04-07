@@ -3,6 +3,8 @@ package controller
 import (
 	"encoding/json"
 	"net/http"
+
+	// "reflect"
 	"sync"
 	"time"
 
@@ -50,6 +52,12 @@ type LogInT struct {
 type UpdateAuth struct {
 	Auth_Session string `json:"auth_session"`
 }
+type GetUSerT struct {
+	ID           int8   `json:"id"`
+	Email        string `json:"email"`
+	LastName     string `json:"lastname"`
+	Auth_Session string `json:"auth_session"`
+}
 
 func SignUp(c *gin.Context) {
 	userAgent := c.Request.Header.Get("User-Agent")
@@ -62,6 +70,7 @@ func SignUp(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&json); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "type error"})
+		return
 	}
 
 	byte, err := bcrypt.GenerateFromPassword([]byte(json.Password), 14)
@@ -80,7 +89,7 @@ func SignUp(c *gin.Context) {
 	_, _, err = supaClient.Insert(row, false, "", "", "").Execute()
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 			"error": "user already exists",
 		})
 		return
@@ -88,6 +97,7 @@ func SignUp(c *gin.Context) {
 		c.JSON(http.StatusCreated, gin.H{
 			"success": "created",
 		})
+		return
 	}
 
 }
@@ -98,27 +108,31 @@ func LogIn(c *gin.Context) {
 	var jsonBody LogInT
 	if err := c.ShouldBindJSON(&jsonBody); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "type error"})
+		return
 	}
 
 	data, _, err := supaClient.Select("*", "exact", false).Eq("email", jsonBody.Email).Single().Execute()
 	if err != nil {
 
-		c.JSON(http.StatusInternalServerError, gin.H{
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 			"error": "can't connect to DB",
 		})
+		return
 	}
 	var users LogInT
 	err = json.Unmarshal(data, &users)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 			"error": "can't find user",
 		})
+		return
 	}
 	var pwd = users.Password
 	err = bcrypt.CompareHashAndPassword([]byte(pwd), []byte(jsonBody.Password))
 
 	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "Wrong email or password"})
+		return
 	}
 
 	parseValue := utils.ParseJwtToken(users.Auth_Session, users.Email)
@@ -126,20 +140,23 @@ func LogIn(c *gin.Context) {
 		Auth_Session: parseValue,
 	}
 	if len(parseValue) < 50 {
-		c.AbortWithStatusJSON(201, gin.H{
+		c.AbortWithStatusJSON(200, gin.H{
 			"status": parseValue,
 		})
+		return
 	} else {
 		_, _, err := supaClient.Update(updateAuthSession, "*", "").Eq("email", jsonBody.Email).Execute()
 
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 				"error": "error updating auth session",
 			})
+			return
 		} else {
 			c.AbortWithStatusJSON(201, gin.H{
 				"status": true,
 			})
+			return
 		}
 	}
 }
@@ -216,7 +233,7 @@ func GetUsers(c *gin.Context) {
 	if idQuery == "" {
 		data, _, err = supaClient.Select("*", "exact", false).Execute()
 	} else {
-		data, _, err = supaClient.Select("*", "exact", false).Eq("id", idQuery).Execute()
+		data, _, err = supaClient.Select("id, email, lastname, auth_session", "exact", false).Eq("id", idQuery).Execute()
 	}
 
 	if err != nil {
@@ -226,16 +243,26 @@ func GetUsers(c *gin.Context) {
 		return
 	}
 
-	var users []GetUser
+	var users []GetUSerT
 	err = json.Unmarshal(data, &users)
 	if err != nil {
 		c.JSON(http.StatusNoContent, gin.H{
 			"error": "No Data Found",
 		})
 		return
-	} else {
+	}
+	query := users[0].Auth_Session
+
+	if utils.GetUserParser(query) {
 		c.JSON(http.StatusOK, gin.H{
 			"data": users,
 		})
+		return
+	} else {
+
+		c.AbortWithStatusJSON(401, gin.H{
+			"error": "Unauthorized"})
+		return
 	}
+
 }

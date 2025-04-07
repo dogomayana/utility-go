@@ -96,6 +96,23 @@ func ParseJwtToken(tokenString, email string) string {
 		return ""
 	}
 }
+func GetUserParser(auth_session string) bool {
+	_ = godotenv.Load()
+
+	mySigningKey := []byte(os.Getenv("SIGNIN_TOKEN"))
+
+	token, err := jwt.ParseWithClaims(auth_session, &MyCustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+		return mySigningKey, nil
+	}, jwt.WithLeeway(5*time.Second))
+	if err != nil {
+		return false
+	}
+	if _, ok := token.Claims.(*MyCustomClaims); ok {
+		return true
+	} else {
+		return false
+	}
+}
 
 // supaClient := ConnectDB()
 // now := time.Now()
