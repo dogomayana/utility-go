@@ -29,14 +29,6 @@ type client struct {
 	windowStart time.Time
 }
 
-type GetUser struct {
-	ID          int8   `json:"id"`
-	Email       string `json:"email"`
-	Firstname   string `json:"firstname"`
-	Lastname    string `json:"lastname"`
-	Balance     byte   `json:"balance"`
-	Device_Type string `json:"device_type"`
-}
 type SignUpT struct {
 	FirstName    string  `json:"first_name" binding:"required"`
 	LastName     string  `json:"last_name" binding:"required"`
@@ -90,7 +82,7 @@ func Debit(c *gin.Context) {
 		})
 		return
 	}
-	if tempv.Balance <= 50.0 || (tempv.Balance-0.50) <= jsonBody.Balance {
+	if tempv.Balance <= 50.0 || (tempv.Balance-8.50) <= jsonBody.Balance {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 			"error": "Insufficient funds",
 		})
