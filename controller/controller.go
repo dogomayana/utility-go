@@ -61,20 +61,67 @@ type GetUSerT struct {
 	Auth_Session string `json:"auth_session"`
 }
 type AmountT struct {
-	Balance float32 `json:"balance"`
+	Email   string  `json:"email" binding:"required"`
+	Balance float32 `json:"balance" binding:"required"`
 }
 
-func Deposit(c *gin.Context) {
+func Debit(c *gin.Context) {
 	supaClient := utils.DBClient()
 
-	idQuery := c.Query("email")
 	var jsonBody AmountT
 	if err := c.ShouldBindJSON(&jsonBody); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	data, _, err := supaClient.Select("balance", "exact", false).Eq("email", idQuery).Single().Execute()
+	data, _, err := supaClient.Select("balance", "exact", false).Eq("email", jsonBody.Email).Single().Execute()
+	if err != nil {
+
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	var tempv AmountT
+	err = json.Unmarshal(data, &tempv)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	if tempv.Balance <= 50.0 || (tempv.Balance-0.50) <= jsonBody.Balance {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"error": "Insufficient funds",
+		})
+		return
+	} else {
+		_, _, err = supaClient.Update(map[string]any{"balance": tempv.Balance - jsonBody.Balance}, "*", "").Eq("email", jsonBody.Email).Execute()
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+				"error": err.Error(),
+			})
+			return
+		} else {
+			c.JSON(http.StatusAccepted, gin.H{
+				"Success": "Debit successful",
+			})
+			return
+		}
+	}
+
+}
+
+func Deposit(c *gin.Context) {
+	supaClient := utils.DBClient()
+
+	var jsonBody AmountT
+	if err := c.ShouldBindJSON(&jsonBody); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	data, _, err := supaClient.Select("balance", "exact", false).Eq("email", jsonBody.Email).Single().Execute()
 	if err != nil {
 
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
@@ -91,7 +138,7 @@ func Deposit(c *gin.Context) {
 		return
 	}
 
-	_, _, err = supaClient.Update(map[string]any{"balance": tempv.Balance + jsonBody.Balance}, "*", "").Eq("email", "example@mail").Execute()
+	_, _, err = supaClient.Update(map[string]any{"balance": tempv.Balance + jsonBody.Balance}, "*", "").Eq("email", jsonBody.Email).Execute()
 
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
@@ -100,7 +147,7 @@ func Deposit(c *gin.Context) {
 		return
 	} else {
 		c.JSON(http.StatusCreated, gin.H{
-			"success": "created",
+			"success": "Credit successful",
 		})
 		return
 	}

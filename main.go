@@ -18,6 +18,7 @@ func main() {
 	route.POST("/login", controller.LogIn)
 	route.GET("/getUsers", controller.GetUsers)
 	route.PATCH("/deposit", controller.Deposit)
+	route.PATCH("/debit", controller.Debit)
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
