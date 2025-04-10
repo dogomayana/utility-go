@@ -27,6 +27,11 @@ type Pin struct {
 	TxnPin int16 `json:"txn_pin" binding:"required"`
 }
 
+type AmountT struct {
+	Email   string  `json:"email" binding:"required"`
+	Balance float32 `json:"balance" binding:"required"`
+}
+
 func DBClient() *postgrest.QueryBuilder {
 	_ = godotenv.Load()
 
